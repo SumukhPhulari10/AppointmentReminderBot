@@ -1,0 +1,8 @@
+Flask==3.0.0
+python-dotenv==1.0.0
+gunicorn==21.2.0
+APScheduler==3.10.4
+Flask-CORS==4.0.0
+
+# Optional: Only needed if you want SMS notifications
+# twilio==8.10.0
