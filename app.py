@@ -9,6 +9,10 @@ from datetime import datetime
 import os
 from dotenv import load_dotenv
 
+# LLM Integration
+from llm_service import get_llm_service, AppointmentExtraction
+from validators import validate_appointment_data, sanitize_user_input
+
 # Load environment variables
 load_dotenv()
 
@@ -47,6 +51,14 @@ scheduler.start()
 
 # In-memory storage for scheduled jobs
 scheduled_jobs = {}
+
+# Initialize LLM service
+llm_service = get_llm_service()
+llm_enabled = llm_service is not None
+if llm_enabled:
+    print("✅ Natural language processing enabled")
+else:
+    print("ℹ️ Natural language processing disabled (missing GEMINI_API_KEY)")
 
 def send_email(to_email, subject, html_content):
     """Send email using Gmail SMTP"""
@@ -106,9 +118,14 @@ def send_sms(to_phone, message):
         return False
 
 def format_datetime(iso_string):
-    """Format ISO datetime string for display"""
+    """Format ISO datetime string for display in IST timezone"""
+    from datetime import timezone, timedelta
+    # Parse the ISO string as UTC
     dt = datetime.fromisoformat(iso_string.replace('Z', '+00:00'))
-    return dt.strftime('%A, %B %d, %Y at %I:%M %p')
+    # Convert to IST (UTC+5:30)
+    ist = timezone(timedelta(hours=5, minutes=30))
+    dt_ist = dt.astimezone(ist)
+    return dt_ist.strftime('%A, %B %d, %Y at %I:%M %p')
 
 def send_reminder(appointment_id, subject, email, phone, datetime_str):
     """Send reminder via email and SMS"""
@@ -136,7 +153,7 @@ def send_reminder(appointment_id, subject, email, phone, datetime_str):
         send_sms(phone, sms_message)
     
     # Schedule follow-up "late" reminder for 2 minutes after
-    if email:  # Only send late reminder if email is provided
+    if email or phone:  # Send late reminder if email or phone is provided
         from datetime import timedelta
         reminder_time = datetime.fromisoformat(datetime_str.replace('Z', '+00:00'))
         late_reminder_time = reminder_time + timedelta(minutes=2)
@@ -145,7 +162,7 @@ def send_reminder(appointment_id, subject, email, phone, datetime_str):
             send_late_reminder,
             'date',
             run_date=late_reminder_time,
-            args=[subject, email, datetime_str]
+            args=[subject, email, phone, datetime_str]
         )
         print(f"[INFO] Late reminder scheduled for {late_reminder_time}")
     
@@ -153,24 +170,29 @@ def send_reminder(appointment_id, subject, email, phone, datetime_str):
     if appointment_id in scheduled_jobs:
         del scheduled_jobs[appointment_id]
 
-def send_late_reminder(subject, email, datetime_str):
-    """Send a follow-up reminder 2 minutes after appointment time"""
+def send_late_reminder(subject, email, phone, datetime_str):
+    """Send a follow-up reminder 2 minutes after appointment time via email and SMS"""
     print(f"Sending late reminder for: {subject}")
     
-    late_email_html = f"""
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <h2 style="color: #dc2626;">⚠️ Appointment Follow-up</h2>
-        <p>This is a follow-up reminder for your appointment that was scheduled 2 minutes ago.</p>
-        <div style="background: #fee2e2; padding: 20px; border-radius: 10px; margin: 20px 0; border-left: 4px solid #dc2626;">
-            <h3 style="margin-top: 0; color: #991b1b;">Were you able to attend?</h3>
-            <p><strong>Subject:</strong> {subject}</p>
-            <p><strong>Scheduled Time:</strong> {format_datetime(datetime_str)}</p>
-            <p style="margin-top: 15px; font-size: 14px;">If you missed this appointment, please reschedule at your earliest convenience.</p>
+    if email:
+        late_email_html = f"""
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #dc2626;">⚠️ Appointment Follow-up</h2>
+            <p>This is a follow-up reminder for your appointment that was scheduled 2 minutes ago.</p>
+            <div style="background: #fee2e2; padding: 20px; border-radius: 10px; margin: 20px 0; border-left: 4px solid #dc2626;">
+                <h3 style="margin-top: 0; color: #991b1b;">Were you able to attend?</h3>
+                <p><strong>Subject:</strong> {subject}</p>
+                <p><strong>Scheduled Time:</strong> {format_datetime(datetime_str)}</p>
+                <p style="margin-top: 15px; font-size: 14px;">If you missed this appointment, please reschedule at your earliest convenience.</p>
+            </div>
+            <p style="color: #64748b; font-size: 14px;">- Your Appointment Bot</p>
         </div>
-        <p style="color: #64748b; font-size: 14px;">- Your Appointment Bot</p>
-    </div>
-    """
-    send_email(email, f"⚠️ Follow-up: {subject}", late_email_html)
+        """
+        send_email(email, f"⚠️ Follow-up: {subject}", late_email_html)
+    
+    if phone:
+        late_sms = f"⚠️ FOLLOW-UP REMINDER\n\n\"{subject}\" was scheduled for {format_datetime(datetime_str)}.\n\nDid you attend? If you missed it, please reschedule."
+        send_sms(phone, late_sms)
 
 @app.route('/')
 def index():
@@ -189,8 +211,93 @@ def health_check():
         'status': 'OK',
         'timestamp': datetime.now().isoformat(),
         'email_configured': EMAIL_USER is not None,
-        'sms_enabled': sms_enabled
+        'sms_enabled': sms_enabled,
+        'llm_enabled': llm_enabled
     })
+
+@app.route('/api/parse-message', methods=['POST'])
+def parse_natural_language():
+    """Parse natural language message using LLM with structured output"""
+    try:
+        # Check if LLM is enabled
+        if not llm_enabled or not llm_service:
+            return jsonify({
+                'success': False,
+                'error': 'Natural language processing not available',
+                'fallback_to_form': True
+            }), 503
+        
+        # Get user message
+        data = request.json
+        user_message = data.get('message', '').strip()
+        
+        if not user_message:
+            return jsonify({
+                'success': False,
+                'error': 'Message is required'
+            }), 400
+        
+        # Sanitize input
+        user_message = sanitize_user_input(user_message)
+        print(f"\n📝 Processing message: '{user_message}'")
+        
+        # Extract appointment details using LLM
+        extraction: AppointmentExtraction = llm_service.extract_appointment_details(user_message)
+        
+        # Convert to dict for JSON response
+        result = extraction.model_dump()
+        
+        # Check if extraction was successful
+        if extraction.error:
+            return jsonify({
+                'success': False,
+                'extraction': result,
+                'clarification_needed': extraction.clarification_needed,
+                'error': extraction.error
+            }), 200
+        
+        # Check if any fields are missing
+        if extraction.missing_fields:
+            return jsonify({
+                'success': False,
+                'extraction': result,
+                'clarification_needed': extraction.clarification_needed or f"Please provide: {', '.join(extraction.missing_fields)}",
+                'missing_fields': extraction.missing_fields
+            }), 200
+        
+        # Validate extraction data
+        is_valid, error_msg = validate_appointment_data({
+            'date': extraction.date,
+            'time': extraction.time,
+            'subject': extraction.subject
+        })
+        
+        if not is_valid:
+            return jsonify({
+                'success': False,
+                'extraction': result,
+                'error': error_msg,
+                'clarification_needed': f"There's an issue: {error_msg}"
+            }), 200
+        
+        # Success - return extracted details for user confirmation
+        print(f"✅ Successfully extracted: {extraction.subject} on {extraction.date} at {extraction.time}")
+        return jsonify({
+            'success': True,
+            'extraction': result,
+            'message': 'Appointment details extracted successfully',
+            'requires_confirmation': True
+        }), 200
+        
+    except Exception as e:
+        print(f"❌ Error in parse_natural_language: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'error': 'Failed to process your message',
+            'fallback_to_form': True
+        }), 500
 
 @app.route('/api/appointments/schedule', methods=['POST'])
 def schedule_appointment():

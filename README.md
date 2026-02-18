@@ -1,243 +1,240 @@
 # 📅 Appointment Reminder Bot
 
-A professional, full-featured appointment reminder system with email notifications, browser alerts, and intelligent follow-up reminders.
+An AI-powered, full-featured appointment reminder system with natural language scheduling, email & SMS notifications, and intelligent follow-up reminders.
+
+> Built as part of the **Gen AI for Gen Z** program by **ScaleDown Community** in collaboration with **Intel Unnati & HPE**.
+
+---
 
 ## 🌟 Features
 
-### Core Functionality
-- **🤖 Conversational UI** - Friendly chat-based interface that guides users through scheduling
-- **📅 Custom Date Picker** - Interactive calendar with month/year navigation
-- **⏰ Smart Time Selection** - 12-hour format with AM/PM selector
-- **💬 Appointment Details** - Subject and notes for each appointment
-- **🔔 Multi-Channel Notifications**:
-  - Browser notifications (instant, at scheduled time)
-  - Email confirmations (immediate)
-  - Email reminders (at scheduled time)
-  - **NEW:** Automatic follow-up email 2 minutes after appointment time
+### 🤖 AI-Powered Natural Language Scheduling
+- **Type naturally** — just say *"Dentist tomorrow at 3pm"* and the bot understands
+- Powered by **Google Gemini 3 Flash** LLM for intelligent appointment extraction
+- Handles relative dates: *"next Monday"*, *"in 2 days"*, *"this Friday"*
+- Asks follow-up questions if details are missing (date, time, subject)
+- Falls back gracefully to manual form if NL mode is unavailable
 
-### Management Features
-- **📋 Appointment History** - View all scheduled appointments
-- **✏️ Update Appointments** - Reschedule existing appointments
-- **🗑️ Delete Appointments** - Cancel appointments with confirmation
-- **📊 Status Tracking** - Shows "Upcoming" or "Past" status for each appointment
+### 📋 Manual Step-by-Step Form (Alternative Mode)
+- Interactive calendar with month/year navigation
+- 12-hour time picker with AM/PM selector
+- Subject and contact info entry
 
-### Email System
-- ✅ **Confirmation Email** - Sent immediately when appointment is scheduled
-- ⏰ **Reminder Email** - Sent at the exact appointment time
-- ⚠️ **Late Follow-up Email** - Automatically sent 2 minutes after appointment to check if user attended
-- 📧 Uses Gmail SMTP (secure app passwords)
+### 🔔 Multi-Channel Notifications
+| Channel | When Sent |
+|---|---|
+| 📧 Confirmation Email | Immediately on booking |
+| ⏰ Reminder Email | At exact appointment time |
+| ⚠️ Follow-up Email | 2 minutes after appointment |
+| 📱 Confirmation SMS | Immediately on booking (if phone provided) |
+| 📱 Reminder SMS | At exact appointment time |
+| 📱 Follow-up SMS | 2 minutes after appointment |
+| 🔔 Browser Notification | At exact appointment time |
 
-## 🛠️ Technology Stack
+### 📋 Appointment Management
+- **History Panel** — View all appointments, newest first
+- **Update** — Reschedule upcoming appointments
+- **Delete/Remove** — Cancel or clear past appointments
+- **Status Tracking** — Upcoming vs Past labels
+
+---
+
+## 🛠️ Technology Stack & Engineering Practices
 
 ### Frontend
-- **HTML5** - Semantic structure
-- **CSS3** - Modern, responsive design with glassmorphism effects
-- **JavaScript (ES6+)** - Dynamic interactions and browser notifications
+- **HTML5 / CSS3 / JavaScript (ES6+)** — Semantic, responsive UI with glassmorphism design
+- **Class-based OOP** — `AppointmentBot` class with prototype extension pattern for NL mode
+- **LocalStorage** — Client-side appointment persistence
 
 ### Backend
-- **Python 3.x** - Server-side logic
-- **Flask** - Web framework and API
-- **APScheduler** - Automated reminder scheduling
-- **SMTP** - Email delivery via Gmail
+- **Python 3.x + Flask** — RESTful API server
+- **APScheduler** — Precise job scheduling for reminders and follow-ups
+- **Gmail SMTP** — Secure email delivery via app passwords
+- **Twilio** — SMS notifications (optional, configurable)
 
-### Storage
-- **LocalStorage** - Client-side appointment persistence
-- **In-Memory** - Server-side job scheduling (can be upgraded to database)
+### AI / LLM Integration
+- **Google Gemini 3 Flash Preview** — Natural language appointment extraction
+- **Structured JSON output** — Gemini returns validated JSON (date, time, subject, confidence)
+- **Pydantic validation** — Schema enforcement on extracted data
+- **Tenacity retry logic** — Automatic retry with exponential backoff on API failures
+- **Graceful degradation** — Falls back to manual form if LLM is unavailable
+
+### Engineering Patterns Used
+- **Service layer pattern** — `LLMService` class isolates all AI logic from Flask routes
+- **Singleton pattern** — Single LLM service instance reused across requests
+- **Middleware/preprocessing** — Phone number normalization before Twilio API calls
+- **Environment-based config** — All credentials via `.env`, never hardcoded
+- **Prototype extension** — NL mode extends base bot class without modifying core logic
+- **Graceful fallback** — Every external API (Gemini, Twilio, ScaleDown) fails safely
+
+---
 
 ## 📁 Project Structure
 
 ```
 ReminderBot/
 ├── index.html          # Main UI
-├── styles.css          # Styling
-├── script.js           # Frontend logic
-├── app.py              # Python Flask backend
+├── styles.css          # Styling (glassmorphism, animations)
+├── script.js           # Core bot logic (AppointmentBot class)
+├── nl_mode.js          # NL mode extension (Gemini integration)
+├── app.py              # Flask backend (API, email, SMS, scheduling)
+├── llm_service.py      # LLM service layer (Gemini + structured extraction)
 ├── requirements.txt    # Python dependencies
-├── .env                # Environment variables (your credentials)
+├── .env                # Environment variables (credentials - never commit)
 ├── .env.example        # Template for credentials
 ├── .gitignore          # Git ignore rules
 ├── README.md           # This file
-├── DEPLOY.md           # Render deployment guide
-└── PORT_ISSUE.md       # Why Live Server doesn't work
+└── DEPLOY.md           # Render deployment guide
 ```
+
+---
 
 ## 🚀 Local Setup
 
 ### Prerequisites
 - Python 3.7+
 - Gmail account with app password
+- Google Gemini API key (free at [aistudio.google.com](https://aistudio.google.com/app/apikey))
 
 ### Installation
 
-1. **Clone or download this repository**
-
-2. **Install Python dependencies:**
+1. **Install Python dependencies:**
    ```bash
    pip install -r requirements.txt
    ```
 
-3. **Get Gmail App Password:**
-   - Go to [Google Account Security](https://myaccount.google.com/security)
-   - Enable 2-Step Verification
-   - Generate App Password for "Mail"
-   - Copy the 16-character password
-
-4. **Configure environment:**
-   - Copy `.env.example` to `.env`
-   - Update with your credentials:
+2. **Configure environment — edit `.env`:**
    ```env
+   # Required
    EMAIL_USER=your-email@gmail.com
    EMAIL_PASSWORD=your-16-char-app-password
+
+   # For AI natural language mode
+   GEMINI_API_KEY=your-gemini-api-key
+
+   # Optional — for SMS notifications
+   TWILIO_ACCOUNT_SID=your-sid
+   TWILIO_AUTH_TOKEN=your-token
+   TWILIO_PHONE_NUMBER=+1XXXXXXXXXX
    ```
 
-5. **Run the server:**
+3. **Run the server:**
    ```bash
    python app.py
    ```
 
-6. **Access the bot:**
-   - Open browser: `http://localhost:10000`
-   - That's it! 🎉
+4. **Open in browser:** `http://localhost:10000`
+
+---
 
 ## 💡 How to Use
 
-1. **Click "Schedule New Appointment"**
-2. **Select date** from the calendar
-3. **Choose time** (hour, minute, AM/PM)
-4. **Enter appointment subject**
-5. **Provide your email** (optional but recommended)
-6. **Confirm** and you're done!
+### Natural Language Mode (Default)
+1. Type your appointment naturally: *"Doctor appointment next Friday at 11am"*
+2. Bot extracts details using Gemini AI and shows a confirmation
+3. Enter your email and/or phone number
+4. Confirm — done! ✅
 
-### What Happens Next:
-- ✅ **Immediate:** Confirmation email sent to your inbox
-- ⏰ **At scheduled time:** Reminder email + browser notification
-- ⚠️ **2 minutes later:** Follow-up email checking if you attended
+### Manual Form Mode
+1. Click **"Use Form Instead"** button
+2. Pick date from calendar → choose time → enter subject → enter contact info → confirm
 
-## 🌐 Why Port 10000?
+---
 
-The appointment bot runs on **port 10000** (not Live Server port 5500) because:
+## 🤖 LLM Architecture
 
-1. **Flask serves both** frontend (HTML/CSS/JS) and backend (Python API)
-2. **Email functionality requires** the Python backend to be running
-3. **API calls** from frontend need to reach the Flask server
-4. **Live Server** only displays files, can't send emails or run Python
-
-**Think of it this way:**
-- Live Server = Picture frame (display only)
-- Flask Server = Smart device (display + functionality)
-
-## 🚀 Deployment (Render)
-
-This bot is **deployment-ready** for Render (free hosting):
-
-### Quick Deploy Steps:
-1. Push code to GitHub
-2. Connect GitHub to Render
-3. Set environment variables (email credentials)
-4. Deploy! ✨
-
-**Detailed Guide:** See `DEPLOY.md` for complete step-by-step instructions.
-
-### After Deployment:
-- Get a live URL like: `https://appointment-bot-xxxx.onrender.com`
-- Share with anyone - they can use it without setup
-- Emails work automatically
-- No server management needed
-
-## ✨ Current Status
-
-- ✅ **Fully functional locally** on `http://localhost:10000`
-- ✅ **Email system working** with Gmail SMTP
-- ✅ **All features tested** and operational
-- ✅ **Ready for Render deployment**
-- ⏳ **SMS notifications** - Optional (Twilio not configured)
-
-## 📧 Email Features in Detail
-
-### 1. Confirmation Email
 ```
-Subject: ✅ Appointment Confirmed: [Your Subject]
-Sent: Immediately after scheduling
-Contains: Appointment details, date, time
+User Input (natural language)
+        ↓
+  nl_mode.js sends to /api/parse-message
+        ↓
+  llm_service.py → LLMService.extract_appointment_details()
+        ↓
+  Gemini 3 Flash Preview API call
+  (structured JSON output enforced)
+        ↓
+  Pydantic validation + date/future check
+        ↓
+  Returns: { date, time, subject, confidence, missing_fields }
+        ↓
+  If missing fields → bot asks follow-up question
+  If complete → shows confirmation card
+        ↓
+  User confirms → /api/appointments/schedule
+        ↓
+  APScheduler schedules reminders
+  Email + SMS sent immediately
 ```
 
-### 2. Reminder Email
+---
+
+## 📧 Notification Flow
+
 ```
-Subject: ⏰ Reminder: [Your Subject]
-Sent: At exact appointment time
-Contains: Appointment details, scheduled time
+Appointment Booked
+    ├── Confirmation Email (instant)
+    ├── Confirmation SMS (instant, if phone provided)
+    └── Scheduled at appointment time:
+            ├── Reminder Email
+            ├── Reminder SMS
+            ├── Browser Notification
+            └── +2 minutes:
+                    ├── Follow-up Email
+                    └── Follow-up SMS
 ```
 
-### 3. Late Follow-up Email (NEW!)
-```
-Subject: ⚠️ Follow-up: [Your Subject]
-Sent: 2 minutes after appointment time
-Contains: Reminder about missed appointment, reschedule prompt
-```
+---
 
 ## 🔐 Security Notes
 
 - **Never commit `.env`** to Git (already in `.gitignore`)
-- **Use app passwords**, not your actual Gmail password
-- **Keep credentials private**
-- **Rotate passwords** if exposed
+- **Use Gmail app passwords**, not your actual password
+- **Twilio credentials** stored only in `.env`
+- **Gemini API key** stored only in `.env`
+
+---
 
 ## 📝 Dependencies
 
-```python
-Flask==3.0.0              # Web framework
-python-dotenv==1.0.0      # Environment variables
-gunicorn==21.2.0          # Production server (for Render)
-APScheduler==3.10.4       # Job scheduling
-Flask-CORS==4.0.0         # Cross-origin requests
-
-# Optional (for SMS):
-# twilio==8.10.0
+```
+Flask==3.0.0                    # Web framework
+python-dotenv==1.0.0            # Environment variable loading
+gunicorn==21.2.0                # Production WSGI server (Render)
+APScheduler==3.10.4             # Reminder job scheduling
+Flask-CORS==4.0.0               # Cross-origin request handling
+google-generativeai             # Gemini LLM API
+pydantic                        # Data validation for LLM output
+tenacity                        # Retry logic with exponential backoff
+python-dateutil                 # Relative date parsing
+twilio                          # SMS notifications (optional)
 ```
 
-## 🤝 Contributing
+---
 
-Feel free to fork, modify, and enhance! Some ideas:
-- Add database support (PostgreSQL/MongoDB)
-- Implement user authentication
-- Add recurring appointments
-- SMS notifications via Twilio
-- Calendar export (iCal)
+## 🌐 Deployment (Render)
 
-## 📄 License
+1. Push code to GitHub
+2. Connect GitHub repo to [Render](https://render.com)
+3. Set environment variables in Render dashboard
+4. Deploy — get a live URL like `https://appointment-bot-xxxx.onrender.com`
 
-MIT License - Free to use and modify!
+See `DEPLOY.md` for detailed steps.
+
+---
 
 ## 🆘 Troubleshooting
 
-### Emails not sending?
-- Check `.env` file exists with correct credentials
-- Verify Gmail app password (16 characters, no spaces)
-- Ensure 2-step verification enabled on Google account
-- Check terminal for error messages
-
-### Port 10000 already in use?
-- Change `PORT=10000` in `.env` to another port
-- Or stop the other service using port 10000
-
-### Browser notifications not working?
-- Allow notifications when browser prompts
-- Check browser settings → Site permissions
-
-### Can't access on port 5500?
-- Don't use Live Server! Read `PORT_ISSUE.md`
-- Use Flask server on port 10000 instead
-
-## 📬 Contact & Support
-
-For issues, questions, or suggestions, feel free to:
-- Open an issue on GitHub
-- Check `DEPLOY.md` for deployment help
-- Read `PORT_ISSUE.md` for server questions
+| Problem | Fix |
+|---|---|
+| Emails not sending | Check `.env` credentials, verify Gmail app password (16 chars) |
+| NL mode not working | Check `GEMINI_API_KEY` in `.env` |
+| SMS not sending | Check Twilio credentials, ensure phone is E.164 format (+91XXXXXXXXXX) |
+| Port 10000 in use | Change `PORT=10000` in `.env` |
+| Browser notifications blocked | Allow notifications in browser site settings |
 
 ---
 
 **Made with ❤️ for better appointment management**
 
-Last Updated: February 13, 2026
-Version: 2.0 (Python Flask + Email + Late Reminders)
+Last Updated: February 18, 2026
+Version: 3.0 — AI-Powered (Gemini NL + Email + SMS + Smart History)

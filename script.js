@@ -104,7 +104,16 @@ class AppointmentBot {
         const now = new Date();
         let historyHTML = '';
 
-        appointments.forEach((apt, index) => {
+        // Create indexed copy and sort newest first, preserving original indices
+        const sorted = appointments
+            .map((apt, index) => ({ apt, index }))
+            .sort((a, b) => {
+                const dateA = new Date(a.apt.dateTime || a.apt.date);
+                const dateB = new Date(b.apt.dateTime || b.apt.date);
+                return dateB - dateA; // newest first
+            });
+
+        sorted.forEach(({ apt, index }) => {
             let appointmentDateTime;
 
             // Handle appointments with or without dateTime field
@@ -171,7 +180,12 @@ class AppointmentBot {
         document.getElementById('chatMessages').style.display = 'flex';
         document.getElementById('historyPanel').style.display = 'none';
 
-        this.showInitialButtons();
+        // Restore NL input if available, otherwise fall back to manual buttons
+        if (typeof this.showNLInput === 'function') {
+            this.showNLInput();
+        } else {
+            this.showInitialButtons();
+        }
     }
 
     deleteAppointment(index) {
@@ -468,15 +482,21 @@ class AppointmentBot {
 
     showContactInput() {
         this.addMessage("Great! Now, let me know how you'd like to receive reminders:", false);
-        this.addMessage("Enter your email address to get confirmation and reminder notifications:", false);
+        this.addMessage("Enter your contact details for email and/or SMS notifications:", false);
 
         const inputHTML = `
             <div class="input-group">
                 <div style="margin-bottom: 12px;">
-                    <label class="input-label">📧 Email Address</label>
+                    <label class="input-label">📧 Email Address (Optional)</label>
                     <input type="email" class="chat-input" id="emailInput" 
                            placeholder="your.email@example.com">
                     <p class="input-hint">You'll receive confirmation and reminder emails</p>
+                </div>
+                <div style="margin-bottom: 12px;">
+                    <label class="input-label">📱 Phone Number (Optional)</label>
+                    <input type="tel" class="chat-input" id="phoneInput" 
+                           placeholder="+91XXXXXXXXXX (include country code)">
+                    <p class="input-hint">For SMS reminders — include country code (e.g. +91 for India)</p>
                 </div>
                 <div class="button-group" style="margin-top: 16px;">
                     <button class="btn btn-primary" onclick="bot.confirmContact()">Continue</button>
@@ -490,6 +510,7 @@ class AppointmentBot {
 
     confirmContact() {
         const email = document.getElementById('emailInput').value.trim();
+        let phone = document.getElementById('phoneInput')?.value.trim() || null;
 
         // Basic email validation
         if (email && !this.validateEmail(email)) {
@@ -497,20 +518,28 @@ class AppointmentBot {
             return;
         }
 
-        if (!email) {
-            if (!confirm('No email provided. You will only receive browser notifications. Continue?')) {
+        // Normalize and validate phone
+        if (phone) {
+            phone = this.normalizePhone(phone);
+            if (!phone) {
+                alert('Invalid phone number. Enter a 10-digit number or include country code (e.g. +91XXXXXXXXXX)');
+                return;
+            }
+        }
+
+        if (!email && !phone) {
+            if (!confirm('No email or phone provided. You will only receive browser notifications. Continue?')) {
                 return;
             }
         }
 
         this.appointmentData.email = email || null;
-        this.appointmentData.phone = null; // No phone support
+        this.appointmentData.phone = phone;
 
-        if (email) {
-            this.addMessage(`📧 ${email}`, true);
-        } else {
-            this.addMessage('Browser notifications only', true);
-        }
+        const contactParts = [];
+        if (email) contactParts.push(`📧 ${email}`);
+        if (phone) contactParts.push(`📱 ${phone}`);
+        this.addMessage(contactParts.length > 0 ? contactParts.join('  ') : 'Browser notifications only', true);
 
         this.showAppointmentSummary();
     }
@@ -525,6 +554,21 @@ class AppointmentBot {
     validateEmail(email) {
         const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         return re.test(email);
+    }
+
+    normalizePhone(phone) {
+        // Remove spaces, dashes, parentheses
+        let cleaned = phone.replace(/[\s\-().]/g, '');
+        // If 10 digits (Indian number), prepend +91
+        if (/^[6-9]\d{9}$/.test(cleaned)) {
+            return '+91' + cleaned;
+        }
+        // If already in E.164 format (+countrycode + digits)
+        if (/^\+\d{10,15}$/.test(cleaned)) {
+            return cleaned;
+        }
+        // Invalid
+        return null;
     }
 
     showAppointmentSummary() {
@@ -686,6 +730,7 @@ class AppointmentBot {
             let confirmMsg = `You will receive reminders via:`;
             const methods = [];
             if (this.appointmentData.email) methods.push('📧 Email');
+            if (this.appointmentData.phone) methods.push('📱 SMS');
             methods.push('🔔 Browser notification');
             confirmMsg += '\n' + methods.join('\n');
 
@@ -736,7 +781,7 @@ class AppointmentBot {
 
     restart() {
         this.currentStep = 'initial';
-        this.appointmentData = { date: null, time: null, subject: null };
+        this.appointmentData = { date: null, time: null, subject: null, email: null, phone: null };
         this.selectedDate = null;
         this.selectedHour = null;
         this.selectedMinute = null;
@@ -745,9 +790,17 @@ class AppointmentBot {
         this.editingAppointmentId = null;
 
         this.addMessage("Ready to schedule a new appointment! 😊", false);
-        this.showInitialButtons();
+
+        // Restore NL input if available, otherwise fall back to manual buttons
+        if (typeof this.showNLInput === 'function') {
+            this.showNLInput();
+        } else {
+            this.showInitialButtons();
+        }
     }
 }
 
 // Initialize the bot
-const bot = new AppointmentBot();
+
+// Bot will be instantiated in nl_mode.js after overrides are applied
+// const bot = new AppointmentBot();

@@ -4,5 +4,11 @@ gunicorn==21.2.0
 APScheduler==3.10.4
 Flask-CORS==4.0.0
 
+# LLM Integration
+google-generativeai==0.8.3
+pydantic==2.10.5
+python-dateutil==2.9.0
+tenacity==9.0.0
+
 # Optional: Only needed if you want SMS notifications
 # twilio==8.10.0
