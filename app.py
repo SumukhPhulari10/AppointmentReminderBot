@@ -1,6 +1,8 @@
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 import smtplib
+import socket
+import threading
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 # twilio imported conditionally below (only if credentials provided)
@@ -61,42 +63,32 @@ else:
     print("ℹ️ Natural language processing disabled (missing GEMINI_API_KEY)")
 
 def send_email(to_email, subject, html_content):
-    """Send email using Gmail SMTP"""
+    """Send email using Gmail SMTP — always called in a background thread"""
     try:
-        print(f"[DEBUG] Attempting to send email to {to_email}")
-        print(f"[DEBUG] Using EMAIL_USER: {EMAIL_USER}")
-        print(f"[DEBUG] EMAIL_PASSWORD set: {bool(EMAIL_PASSWORD)}")
-        
+        print(f"[EMAIL] Sending to {to_email}")
         msg = MIMEMultipart('alternative')
         msg['From'] = f"Appointment Bot <{EMAIL_USER}>"
         msg['To'] = to_email
         msg['Subject'] = subject
-        
-        html_part = MIMEText(html_content, 'html')
-        msg.attach(html_part)
-        
-        print("[DEBUG] Connecting to Gmail SMTP...")
-        # Connect to Gmail SMTP
-        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
-            print("[DEBUG] Connected! Attempting login...")
+        msg.attach(MIMEText(html_content, 'html'))
+
+        # 30-second socket timeout prevents infinite blocking
+        with smtplib.SMTP_SSL('smtp.gmail.com', 465,
+                               context=None,
+                               timeout=30) as server:
             server.login(EMAIL_USER, EMAIL_PASSWORD)
-            print("[DEBUG] Login successful! Sending message...")
             server.send_message(msg)
-            print("[DEBUG] Message sent successfully!")
-        
-        print(f"✅ Email sent to {to_email}")
+
+        print(f"[EMAIL] ✅ Sent to {to_email}")
         return True
-    except smtplib.SMTPAuthenticationError as e:
-        print(f"❌ Authentication Error: {e}")
-        print("   Check: 1) Email is correct, 2) App password is correct (not regular password)")
+    except smtplib.SMTPAuthenticationError:
+        print("[EMAIL] ❌ Auth failed — check EMAIL_PASSWORD is a Gmail App Password")
         return False
-    except smtplib.SMTPException as e:
-        print(f"❌ SMTP Error: {e}")
+    except (smtplib.SMTPException, socket.timeout, OSError) as e:
+        print(f"[EMAIL] ❌ Failed: {e}")
         return False
     except Exception as e:
-        print(f"❌ Error sending email: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"[EMAIL] ❌ Unexpected error: {e}")
         return False
 
 def send_sms(to_phone, message):
@@ -311,33 +303,39 @@ def schedule_appointment():
         
         if not appointment_datetime or not subject:
             return jsonify({'error': 'Missing required fields'}), 400
-        
+
         # Generate appointment ID
         appointment_id = f"{datetime.now().timestamp()}"
-        
-        # Send confirmation email
-        if email:
-            confirmation_html = f"""
-            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                <h2 style="color: #6366f1;">✅ Appointment Confirmed</h2>
-                <p>Your appointment has been successfully scheduled!</p>
-                <div style="background: #f1f5f9; padding: 20px; border-radius: 10px; margin: 20px 0;">
-                    <h3 style="margin-top: 0; color: #334155;">Appointment Details</h3>
-                    <p><strong>Subject:</strong> {subject}</p>
-                    <p><strong>Date & Time:</strong> {format_datetime(appointment_datetime)}</p>
+
+        # Return success immediately — emails/SMS fire in background threads
+        # This prevents Gunicorn worker timeouts on Render
+        def send_notifications():
+            # Send confirmation email
+            if email:
+                confirmation_html = f"""
+                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                    <h2 style="color: #6366f1;">✅ Appointment Confirmed</h2>
+                    <p>Your appointment has been successfully scheduled!</p>
+                    <div style="background: #f1f5f9; padding: 20px; border-radius: 10px; margin: 20px 0;">
+                        <h3 style="margin-top: 0; color: #334155;">Appointment Details</h3>
+                        <p><strong>Subject:</strong> {subject}</p>
+                        <p><strong>Date & Time:</strong> {format_datetime(appointment_datetime)}</p>
+                    </div>
+                    <p>You will receive a reminder notification at the scheduled time.</p>
+                    <p style="color: #64748b; font-size: 14px;">- Your Appointment Bot</p>
                 </div>
-                <p>You will receive a reminder notification at the scheduled time.</p>
-                <p style="color: #64748b; font-size: 14px;">- Your Appointment Bot</p>
-            </div>
-            """
-            send_email(email, f"Appointment Confirmed: {subject}", confirmation_html)
-        
-        # Send confirmation SMS
-        if phone:
-            confirmation_sms = f"✅ Appointment confirmed!\n\n\"{subject}\"\n{format_datetime(appointment_datetime)}\n\nYou'll receive a reminder at the scheduled time."
-            send_sms(phone, confirmation_sms)
-        
-        # Schedule reminder
+                """
+                send_email(email, f"Appointment Confirmed: {subject}", confirmation_html)
+
+            # Send confirmation SMS
+            if phone:
+                confirmation_sms = f"✅ Appointment confirmed!\n\n\"{subject}\"\n{format_datetime(appointment_datetime)}\n\nYou'll receive a reminder at the scheduled time."
+                send_sms(phone, confirmation_sms)
+
+        t = threading.Thread(target=send_notifications, daemon=True)
+        t.start()
+
+        # Schedule reminder job
         reminder_time = datetime.fromisoformat(appointment_datetime.replace('Z', '+00:00'))
         job = scheduler.add_job(
             send_reminder,
@@ -346,13 +344,13 @@ def schedule_appointment():
             args=[appointment_id, subject, email, phone, appointment_datetime]
         )
         scheduled_jobs[appointment_id] = job
-        
+
         return jsonify({
             'success': True,
             'appointmentId': appointment_id,
             'message': 'Appointment scheduled successfully'
         })
-        
+
     except Exception as e:
         print(f"Error scheduling appointment: {e}")
         return jsonify({'error': str(e)}), 500
