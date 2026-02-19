@@ -22,9 +22,17 @@ app = Flask(__name__)
 CORS(app)
 
 # Configuration
-EMAIL_USER = os.getenv('EMAIL_USER')
-EMAIL_PASSWORD = os.getenv('EMAIL_PASSWORD')
-EMAIL_SERVICE = os.getenv('EMAIL_SERVICE', 'gmail')
+EMAIL_USER = os.getenv('EMAIL_USER')           # used as sender address
+EMAIL_PASSWORD = os.getenv('EMAIL_PASSWORD')   # Gmail App Password (local dev only)
+SENDGRID_API_KEY = os.getenv('SENDGRID_API_KEY')  # Use on Render (SMTP blocked on free tier)
+
+# Detect which email method to use
+if SENDGRID_API_KEY:
+    print("✅ Email via SendGrid API")
+elif EMAIL_USER and EMAIL_PASSWORD:
+    print("✅ Email via Gmail SMTP (local dev)")
+else:
+    print("ℹ️ Email notifications disabled")
 
 # Twilio is optional - only initialize if credentials provided
 TWILIO_ACCOUNT_SID = os.getenv('TWILIO_ACCOUNT_SID')
@@ -63,32 +71,86 @@ else:
     print("ℹ️ Natural language processing disabled (missing GEMINI_API_KEY)")
 
 def send_email(to_email, subject, html_content):
-    """Send email using Gmail SMTP — always called in a background thread"""
+    """Send email — Resend → SendGrid → SMTP (local) in order of preference"""
+    import urllib.request, json as _json
+
+    # ── 1. Resend API (easiest, works on Render free tier) ──────────────────
+    RESEND_API_KEY = os.getenv('RESEND_API_KEY')
+    if RESEND_API_KEY:
+        try:
+            sender = f"Appointment Bot <{EMAIL_USER}>" if EMAIL_USER else "Appointment Bot <onboarding@resend.dev>"
+            payload = _json.dumps({
+                "from": sender,
+                "to": [to_email],
+                "subject": subject,
+                "html": html_content
+            }).encode()
+            req = urllib.request.Request(
+                "https://api.resend.com/emails",
+                data=payload,
+                headers={
+                    "Authorization": f"Bearer {RESEND_API_KEY}",
+                    "Content-Type": "application/json"
+                },
+                method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                if resp.status in (200, 201):
+                    print(f"[EMAIL] ✅ Resend → {to_email}")
+                    return True
+                print(f"[EMAIL] ❌ Resend status {resp.status}")
+                return False
+        except Exception as e:
+            print(f"[EMAIL] ❌ Resend error: {e}")
+            return False
+
+    # ── 2. SendGrid API ──────────────────────────────────────────────────────
+    if SENDGRID_API_KEY:
+        try:
+            payload = _json.dumps({
+                "personalizations": [{"to": [{"email": to_email}]}],
+                "from": {"email": EMAIL_USER or "noreply@appointmentbot.com", "name": "Appointment Bot"},
+                "subject": subject,
+                "content": [{"type": "text/html", "value": html_content}]
+            }).encode()
+            req = urllib.request.Request(
+                "https://api.sendgrid.com/v3/mail/send",
+                data=payload,
+                headers={
+                    "Authorization": f"Bearer {SENDGRID_API_KEY}",
+                    "Content-Type": "application/json"
+                },
+                method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                if resp.status in (200, 202):
+                    print(f"[EMAIL] ✅ SendGrid → {to_email}")
+                    return True
+                print(f"[EMAIL] ❌ SendGrid status {resp.status}")
+                return False
+        except Exception as e:
+            print(f"[EMAIL] ❌ SendGrid error: {e}")
+            return False
+
+    # ── 3. Gmail SMTP — local dev only (blocked on Render free tier) ─────────
+    if not EMAIL_USER or not EMAIL_PASSWORD:
+        print("[EMAIL] Skipped — no credentials configured")
+        return False
     try:
-        print(f"[EMAIL] Sending to {to_email}")
+        from email.mime.multipart import MIMEMultipart
+        from email.mime.text import MIMEText
         msg = MIMEMultipart('alternative')
         msg['From'] = f"Appointment Bot <{EMAIL_USER}>"
         msg['To'] = to_email
         msg['Subject'] = subject
         msg.attach(MIMEText(html_content, 'html'))
-
-        # 30-second socket timeout prevents infinite blocking
-        with smtplib.SMTP_SSL('smtp.gmail.com', 465,
-                               context=None,
-                               timeout=30) as server:
+        with smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=30) as server:
             server.login(EMAIL_USER, EMAIL_PASSWORD)
             server.send_message(msg)
-
-        print(f"[EMAIL] ✅ Sent to {to_email}")
+        print(f"[EMAIL] ✅ SMTP → {to_email}")
         return True
-    except smtplib.SMTPAuthenticationError:
-        print("[EMAIL] ❌ Auth failed — check EMAIL_PASSWORD is a Gmail App Password")
-        return False
-    except (smtplib.SMTPException, socket.timeout, OSError) as e:
-        print(f"[EMAIL] ❌ Failed: {e}")
-        return False
     except Exception as e:
-        print(f"[EMAIL] ❌ Unexpected error: {e}")
+        print(f"[EMAIL] ❌ SMTP error: {e}")
         return False
 
 def send_sms(to_phone, message):
