@@ -683,31 +683,61 @@ class AppointmentBot {
 
         // Send to backend for email/SMS notifications
         if (this.appointmentData.email || this.appointmentData.phone) {
+            const apiUrl = '/api/appointments/schedule';      // always relative — works locally + on Render
+            const body = JSON.stringify({
+                dateTime: appointmentObj.dateTime,
+                subject: this.appointmentData.subject,
+                email: this.appointmentData.email,
+                phone: this.appointmentData.phone
+            });
+
+            // Helper: one fetch attempt with a 25-second timeout
+            const attemptSchedule = async () => {
+                const controller = new AbortController();
+                const timer = setTimeout(() => controller.abort(), 25000);
+                try {
+                    const response = await fetch(apiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body,
+                        signal: controller.signal
+                    });
+                    clearTimeout(timer);
+                    if (!response.ok) {
+                        const errText = await response.text();
+                        throw new Error(`Server responded ${response.status}: ${errText}`);
+                    }
+                    return await response.json();
+                } catch (e) {
+                    clearTimeout(timer);
+                    throw e;
+                }
+            };
+
             try {
-                // Use current domain for API calls (works both locally and on Render)
-                const apiUrl = window.location.origin + '/api/appointments/schedule';
-
-                const response = await fetch(apiUrl, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        dateTime: appointmentObj.dateTime,
-                        subject: this.appointmentData.subject,
-                        email: this.appointmentData.email,
-                        phone: this.appointmentData.phone
-                    })
-                });
-
-                const result = await response.json();
+                const result = await attemptSchedule();
                 if (result.success) {
                     appointmentObj.backendId = result.appointmentId;
-                    console.log('Appointment scheduled on backend:', result.appointmentId);
+                    console.log('✅ Backend scheduled:', result.appointmentId);
                 }
-            } catch (error) {
-                console.error('Error connecting to backend:', error);
-                this.addMessage("⚠️ Note: Could not connect to notification server. Email/SMS will not be sent.", false);
+            } catch (firstErr) {
+                console.warn('First attempt failed, retrying in 3 s...', firstErr.message);
+                // One automatic retry — handles Render free-tier cold-start delay
+                await new Promise(r => setTimeout(r, 3000));
+                try {
+                    const result = await attemptSchedule();
+                    if (result.success) {
+                        appointmentObj.backendId = result.appointmentId;
+                        console.log('✅ Backend scheduled (retry):', result.appointmentId);
+                    }
+                } catch (secondErr) {
+                    console.error('Backend unreachable:', secondErr.message);
+                    this.addMessage(
+                        "⚠️ Could not reach the server for email/SMS — the reminder is saved locally. " +
+                        "If the server just woke up, try scheduling again in a moment.",
+                        false
+                    );
+                }
             }
         }
 
