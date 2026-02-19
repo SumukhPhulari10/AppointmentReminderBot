@@ -75,13 +75,10 @@ class AppointmentBot {
     }
 
     showInitialButtons() {
-        const appointments = JSON.parse(localStorage.getItem('appointments') || '[]');
-        const hasAppointments = appointments.length > 0;
-
         const buttonsHTML = `
             <div class="button-group">
                 <button class="btn btn-primary" onclick="bot.startAppointment()">Schedule New Appointment</button>
-                ${hasAppointments ? '<button class="btn btn-secondary" onclick="bot.viewHistory()">📋 View History</button>' : ''}
+                <button class="btn btn-secondary" onclick="bot.viewHistory()">📋 View History</button>
                 <button class="btn btn-secondary" onclick="bot.showHelp()">How it works</button>
             </div>
         `;
@@ -92,7 +89,23 @@ class AppointmentBot {
         const appointments = JSON.parse(localStorage.getItem('appointments') || '[]');
 
         if (appointments.length === 0) {
-            this.addMessage("You don't have any scheduled appointments yet.", false);
+            // Show empty state in the history panel itself
+            document.getElementById('chatMessages').style.display = 'none';
+            document.getElementById('historyPanel').style.display = 'flex';
+            document.getElementById('historyPanel').style.flexDirection = 'column';
+            document.getElementById('historyPanelContent').innerHTML = `
+                <div style="text-align:center; padding: 40px 20px; color: var(--text-muted);">
+                    <div style="font-size: 48px; margin-bottom: 16px;">📭</div>
+                    <p style="font-size: 16px; font-weight: 600; color: var(--text-secondary); margin-bottom: 8px;">No appointments yet</p>
+                    <p style="font-size: 14px;">Schedule your first one to see it here!</p>
+                </div>
+            `;
+            this.inputArea.innerHTML = `
+                <div class="button-group">
+                    <button class="btn btn-primary" onclick="bot.backToMenu(); bot.startAppointment()">+ Schedule Now</button>
+                    <button class="btn btn-secondary" onclick="bot.backToMenu()">← Back</button>
+                </div>
+            `;
             return;
         }
 
@@ -255,15 +268,16 @@ class AppointmentBot {
     showDatePicker() {
         const pickerHTML = `
             <div class="picker-container">
-                <div class="picker-title">Select Date</div>
+                <div class="picker-title">📅 Select Date</div>
                 <div class="month-nav">
                     <button onclick="bot.changeMonth(-1)">← Prev</button>
                     <span id="currentMonth">${this.getMonthYear()}</span>
                     <button onclick="bot.changeMonth(1)">Next →</button>
                 </div>
                 <div id="dateGrid" class="date-grid"></div>
-                <div class="button-group" style="margin-top: 16px;">
-                    <button class="btn btn-primary" onclick="bot.confirmDate()" id="confirmDateBtn" disabled>Confirm Date</button>
+                <div class="step-actions" style="margin-top: 16px;">
+                    <button class="btn btn-secondary step-back-btn" onclick="bot.goBackToMenu()">← Back</button>
+                    <button class="btn btn-primary" onclick="bot.confirmDate()" id="confirmDateBtn" disabled>Confirm Date ✓</button>
                 </div>
             </div>
         `;
@@ -359,74 +373,105 @@ class AppointmentBot {
     }
 
     showTimePicker() {
+        // Build hour buttons (1-12) in a 4-column grid
         let hoursHTML = '';
         for (let i = 1; i <= 12; i++) {
-            hoursHTML += `<button class="time-btn" onclick="bot.selectHour(${i}, this)">${i}</button>`;
+            hoursHTML += `<button class="time-grid-btn" onclick="bot.selectHour(${i}, this)">${i}</button>`;
         }
 
-        let minutesHTML = '';
+        // All 60 minutes as a native scrollable select — works perfectly on mobile
+        let minuteOptions = '';
         for (let i = 0; i < 60; i++) {
-            const min = i.toString().padStart(2, '0');
-            minutesHTML += `<button class="time-btn" onclick="bot.selectMinute('${min}', this)">${min}</button>`;
+            const val = i.toString().padStart(2, '0');
+            minuteOptions += `<option value="${val}">${val}</option>`;
         }
 
         const pickerHTML = `
             <div class="picker-container">
-                <div class="picker-title">Select Time</div>
-                <div class="time-selectors">
-                    <div class="time-section">
-                        <div class="time-label">Hour</div>
-                        <div class="time-scroll" id="hourScroll">${hoursHTML}</div>
-                    </div>
-                    <div class="time-section">
-                        <div class="time-label">Minute</div>
-                        <div class="time-scroll" id="minuteScroll">${minutesHTML}</div>
-                    </div>
-                    <div class="time-section">
-                        <div class="time-label">Period</div>
-                        <div class="time-scroll">
-                            <button class="time-btn" onclick="bot.selectPeriod('AM', this)">AM</button>
-                            <button class="time-btn" onclick="bot.selectPeriod('PM', this)">PM</button>
-                        </div>
+                <div class="picker-title">⏰ Select Time</div>
+
+                <div class="time-section-block">
+                    <div class="time-label">Hour</div>
+                    <div class="time-grid" id="hourScroll">${hoursHTML}</div>
+                </div>
+
+                <div class="time-section-block">
+                    <div class="time-label">Minute (00 – 59)</div>
+                    <select class="minute-select" id="minuteSelect" onchange="bot.selectMinuteFromSelect(this.value)">
+                        <option value="" disabled selected>— pick a minute —</option>
+                        ${minuteOptions}
+                    </select>
+                </div>
+
+                <div class="time-section-block">
+                    <div class="time-label">AM / PM</div>
+                    <div class="ampm-toggle">
+                        <button class="ampm-btn" id="amBtn" onclick="bot.selectPeriod('AM', this)">AM</button>
+                        <button class="ampm-btn" id="pmBtn" onclick="bot.selectPeriod('PM', this)">PM</button>
                     </div>
                 </div>
-                <div class="button-group">
-                    <button class="btn btn-primary" onclick="bot.confirmTime()" id="confirmTimeBtn" disabled>Confirm Time</button>
+
+                <div class="time-preview" id="timePreview">Select hour, minute &amp; AM/PM</div>
+
+                <div class="step-actions" style="margin-top:14px;">
+                    <button class="btn btn-secondary step-back-btn" onclick="bot.goBackToDate()">← Back</button>
+                    <button class="btn btn-primary" onclick="bot.confirmTime()" id="confirmTimeBtn" disabled>✓ Confirm Time</button>
                 </div>
             </div>
         `;
         this.inputArea.innerHTML = pickerHTML;
     }
 
+    selectMinuteFromSelect(value) {
+        this.selectedMinute = value;
+        this.updateTimePreview();
+        this.checkTimeSelection();
+    }
+
     selectHour(hour, element) {
-        document.querySelectorAll('#hourScroll .time-btn').forEach(btn => btn.classList.remove('selected'));
+        document.querySelectorAll('#hourScroll .time-grid-btn').forEach(btn => btn.classList.remove('selected'));
         element.classList.add('selected');
         this.selectedHour = hour;
+        this.updateTimePreview();
         this.checkTimeSelection();
     }
 
     selectMinute(minute, element) {
-        document.querySelectorAll('#minuteScroll .time-btn').forEach(btn => btn.classList.remove('selected'));
-        element.classList.add('selected');
+        // kept for compatibility (no longer used in grid but in case needed)
+        document.querySelectorAll('#minuteScroll .time-grid-btn').forEach(btn => btn.classList.remove('selected'));
+        if (element) element.classList.add('selected');
         this.selectedMinute = minute;
+        this.updateTimePreview();
         this.checkTimeSelection();
     }
 
     selectPeriod(period, element) {
-        document.querySelectorAll('.time-scroll .time-btn').forEach(btn => {
-            if (btn.textContent === 'AM' || btn.textContent === 'PM') {
-                btn.classList.remove('selected');
-            }
-        });
+        document.querySelectorAll('.ampm-btn').forEach(btn => btn.classList.remove('selected'));
         element.classList.add('selected');
         this.selectedPeriod = period;
+        this.updateTimePreview();
         this.checkTimeSelection();
+    }
+
+    updateTimePreview() {
+        const preview = document.getElementById('timePreview');
+        if (!preview) return;
+        const h = this.selectedHour || '?';
+        const m = this.selectedMinute || '?';
+        const p = this.selectedPeriod || '?';
+        if (this.selectedHour && this.selectedMinute && this.selectedPeriod) {
+            preview.textContent = `⏰ ${h}:${m} ${p}`;
+            preview.classList.add('ready');
+        } else {
+            preview.textContent = `${h}:${m} ${p}`;
+            preview.classList.remove('ready');
+        }
     }
 
     checkTimeSelection() {
         const confirmBtn = document.getElementById('confirmTimeBtn');
         if (this.selectedHour !== null && this.selectedMinute !== null && this.selectedPeriod !== null) {
-            confirmBtn.disabled = false;
+            if (confirmBtn) confirmBtn.disabled = false;
         }
     }
 
@@ -449,11 +494,14 @@ class AppointmentBot {
     showSubjectInput() {
         const inputHTML = `
             <div class="input-group">
+                <label class="input-label">📝 What's the appointment for?</label>
                 <input type="text" class="chat-input" id="subjectInput" 
-                       placeholder="e.g., Doctor's appointment, Team meeting, etc." 
-                       maxlength="100">
-                <div class="button-group" style="margin-top: 12px;">
-                    <button class="btn btn-primary" onclick="bot.confirmSubject()">Continue</button>
+                       placeholder="e.g., Doctor's appointment, Team meeting, Dentist..." 
+                       maxlength="100" autocomplete="off">
+                <p class="input-hint">Keep it short so it's easy to read in your reminder</p>
+                <div class="step-actions" style="margin-top: 12px;">
+                    <button class="btn btn-secondary step-back-btn" onclick="bot.goBackToTime()">← Back</button>
+                    <button class="btn btn-primary" onclick="bot.confirmSubject()">Continue →</button>
                 </div>
             </div>
         `;
@@ -498,9 +546,10 @@ class AppointmentBot {
                            placeholder="+91XXXXXXXXXX (include country code)">
                     <p class="input-hint">For SMS reminders — include country code (e.g. +91 for India)</p>
                 </div>
-                <div class="button-group" style="margin-top: 16px;">
-                    <button class="btn btn-primary" onclick="bot.confirmContact()">Continue</button>
-                    <button class="btn btn-secondary" onclick="bot.skipContact()">Skip (Browser only)</button>
+                <div class="step-actions" style="margin-top: 16px;">
+                    <button class="btn btn-secondary step-back-btn" onclick="bot.goBackToSubject()">← Back</button>
+                    <button class="btn btn-primary" onclick="bot.confirmContact()">Continue →</button>
+                    <button class="btn btn-secondary" onclick="bot.skipContact()">Skip / Browser only</button>
                 </div>
             </div>
         `;
@@ -778,6 +827,48 @@ class AppointmentBot {
         this.addMessage("No problem! Let's start over.", false);
         this.restart();
     }
+
+    // ── Back navigation ──────────────────────────────────────
+    goBackToMenu() {
+        // Back from date picker → main menu
+        this.currentStep = 'initial';
+        this.selectedDate = null;
+        if (typeof this.showNLInput === 'function') {
+            this.showNLInput();
+        } else {
+            this.showInitialButtons();
+        }
+    }
+
+    goBackToDate() {
+        // Back from time picker → date picker
+        this.addMessage("Going back to date selection...", false);
+        this.selectedHour = null;
+        this.selectedMinute = null;
+        this.selectedPeriod = null;
+        this.currentStep = 'date';
+        this.showDatePicker();
+    }
+
+    goBackToTime() {
+        // Back from subject → time picker
+        this.addMessage("Going back to time selection...", false);
+        this.appointmentData.time = null;
+        this.selectedHour = null;
+        this.selectedMinute = null;
+        this.selectedPeriod = null;
+        this.currentStep = 'time';
+        this.showTimePicker();
+    }
+
+    goBackToSubject() {
+        // Back from contact → subject
+        this.addMessage("Going back to subject entry...", false);
+        this.appointmentData.subject = null;
+        this.currentStep = 'subject';
+        this.showSubjectInput();
+    }
+    // ─────────────────────────────────────────────────────────
 
     restart() {
         this.currentStep = 'initial';

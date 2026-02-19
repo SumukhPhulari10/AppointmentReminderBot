@@ -43,9 +43,6 @@
 
     // Show natural language input (PRIMARY INTERFACE) 
     AppointmentBot.prototype.showNLInput = function () {
-        const appointments = JSON.parse(localStorage.getItem('appointments') || '[]');
-        const hasHistory = appointments.length > 0;
-
         const inputHTML = `
             <div class="nl-input-container">
                 <input type="text" class="chat-input nl-input" id="nlMessageInput" 
@@ -55,9 +52,9 @@
                     Send 🚀
                 </button>
             </div>
-            <div class="button-group" style="margin-top: 12px;">
-                ${hasHistory ? '<button class="btn btn-secondary" onclick="bot.viewHistory()">📋 View History</button>' : ''}
-                <button class="btn btn-secondary" onclick="bot.switchToManualMode()">📋 Use Form Instead</button>
+            <div class="button-group" style="margin-top: 10px;">
+                <button class="btn btn-secondary" onclick="bot.viewHistory()">📋 View History</button>
+                <button class="btn btn-secondary" onclick="bot.switchToManualMode()">📝 Use Form</button>
             </div>
         `;
         this.inputArea.innerHTML = inputHTML;

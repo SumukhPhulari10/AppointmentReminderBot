@@ -3,7 +3,7 @@ from flask_cors import CORS
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from twilio.rest import Client
+# twilio imported conditionally below (only if credentials provided)
 from apscheduler.schedulers.background import BackgroundScheduler
 from datetime import datetime
 import os

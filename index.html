@@ -3,7 +3,21 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Proper mobile viewport — prevents user scaling which can break chat UIs -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+
+    <!-- Browser/status bar color on Android Chrome & Safari -->
+    <meta name="theme-color" content="#4f46e5">
+    <meta name="msapplication-TileColor" content="#4f46e5">
+
+    <!-- iOS full-screen / PWA feel when saved to home screen -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Reminder Bot">
+
+    <!-- SEO -->
+    <meta name="description" content="AI-powered appointment scheduling bot — schedule reminders via natural language.">
+
     <title>Appointment Reminder Bot</title>
     <link rel="stylesheet" href="styles.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
