@@ -78,13 +78,18 @@ def send_email(to_email, subject, html_content):
     RESEND_API_KEY = os.getenv('RESEND_API_KEY')
     if RESEND_API_KEY:
         try:
-            sender = f"Appointment Bot <{EMAIL_USER}>" if EMAIL_USER else "Appointment Bot <onboarding@resend.dev>"
-            payload = _json.dumps({
+            # Resend Free Tier: MUST send from onboarding@resend.dev (unless you verify a domain)
+            sender = "Appointment Bot <onboarding@resend.dev>"
+            params = {
                 "from": sender,
                 "to": [to_email],
                 "subject": subject,
                 "html": html_content
-            }).encode()
+            }
+            if EMAIL_USER:
+                params["reply_to"] = EMAIL_USER
+
+            payload = _json.dumps(params).encode()
             req = urllib.request.Request(
                 "https://api.resend.com/emails",
                 data=payload,
@@ -399,11 +404,21 @@ def schedule_appointment():
 
         # Schedule reminder job
         reminder_time = datetime.fromisoformat(appointment_datetime.replace('Z', '+00:00'))
+        
+        # Log clearly for debugging timezones on Render
+        try:
+            from datetime import timezone
+            now_utc = datetime.now(timezone.utc)
+            print(f"[SCHEDULER] Current Server Time (UTC): {now_utc}")
+            print(f"[SCHEDULER] Job scheduled for (UTC):   {reminder_time}")
+        except: pass
+
         job = scheduler.add_job(
             send_reminder,
             'date',
             run_date=reminder_time,
-            args=[appointment_id, subject, email, phone, appointment_datetime]
+            args=[appointment_id, subject, email, phone, appointment_datetime],
+            misfire_grace_time=3600  # If server wakes up, still send missed within 1h
         )
         scheduled_jobs[appointment_id] = job
 
