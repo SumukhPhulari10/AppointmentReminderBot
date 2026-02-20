@@ -46,7 +46,7 @@
         const inputHTML = `
             <div class="nl-input-container">
                 <input type="text" class="chat-input nl-input" id="nlMessageInput" 
-                       placeholder="Type your appointment: 'Dentist tomorrow at 3pm'" 
+                       placeholder="e.g. tomorrow 12pm dentist" 
                        maxlength="200" autofocus>
                 <button class="btn btn-primary" onclick="bot.sendNLMessage()" id="nlSendBtn">
                     Send 🚀

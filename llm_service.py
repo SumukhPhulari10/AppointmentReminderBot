@@ -42,18 +42,21 @@ class LLMService:
     def _get_system_prompt(self) -> str:
         """Get system prompt for appointment extraction"""
         today = datetime.now()
-        return f"""You are an appointment scheduling assistant. Extract appointment details from user messages.
+        return f"""You are an appointment scheduling assistant. Extract appointment details from natural, casual user messages.
 
 Current date and time: {today.strftime('%A, %B %d, %Y at %I:%M %p')}
 Current date: {today.strftime('%Y-%m-%d')}
 
-IMPORTANT RULES:
-1. Date MUST be in the future (after current date/time)
-2. Parse relative dates: "tomorrow", "next Monday", "in 2 days", etc.
-3. Parse times: "3pm" = "15:00", "10:30am" = "10:30"
-4. If time is missing, ask for clarification
-5. If date is missing, ask for clarification
-6. Subject should be extracted from context
+RULES:
+1. Accept any date — past, present, or future. Never reject a date.
+2. Parse relative dates: "tomorrow", "today", "next Monday", "in 2 days", etc.
+3. Parse times in any format: "3pm"→"15:00", "12pm"→"12:00", "10:30am"→"10:30", "noon"→"12:00"
+4. Extract subject/purpose from ANY part of the message, including nouns, activities, or keywords like "dentist", "meeting with John", "gym", "doctor"
+5. Word order does NOT matter — "tomorrow 12pm meeting for dentist" = date:tomorrow, time:12pm, subject:Dentist appointment
+6. If time is missing, ask for clarification
+7. If date is missing, ask for clarification
+8. If subject is missing, ask for clarification
+9. Be lenient and intelligent — try your best to extract something useful
 
 Return ONLY valid JSON matching this schema:
 {{
@@ -67,9 +70,11 @@ Return ONLY valid JSON matching this schema:
 }}
 
 Examples:
-- "Dentist tomorrow at 3pm" → {{"date": "{(today + timedelta(days=1)).strftime('%Y-%m-%d')}", "time": "15:00", "subject": "Dentist", "confidence": 0.95, "missing_fields": [], "clarification_needed": null}}
-- "Meeting next Monday" → {{"date": "[calculate next Monday]", "time": null, "confidence": 0.7, "missing_fields": ["time"], "clarification_needed": "What time is the meeting?"}}
-- "Appointment yesterday" → {{"date": null, "time": null, "confidence": 0.0, "missing_fields": ["date"], "error": "Please provide a future date", "clarification_needed": "When would you like to schedule the appointment? (must be a future date)"}}
+- "tomorrow 12pm meeting for dentist" → {{"date": "{(today + timedelta(days=1)).strftime('%Y-%m-%d')}", "time": "12:00", "subject": "Dentist appointment", "confidence": 0.95, "missing_fields": [], "clarification_needed": null}}
+- "dentist tomorrow at 3pm" → {{"date": "{(today + timedelta(days=1)).strftime('%Y-%m-%d')}", "time": "15:00", "subject": "Dentist appointment", "confidence": 0.95, "missing_fields": [], "clarification_needed": null}}
+- "today 5:47pm meeting" → {{"date": "{today.strftime('%Y-%m-%d')}", "time": "17:47", "subject": "Meeting", "confidence": 0.9, "missing_fields": [], "clarification_needed": null}}
+- "gym session next Monday 7am" → {{"date": "[calculate next Monday]", "time": "07:00", "subject": "Gym session", "confidence": 0.95, "missing_fields": [], "clarification_needed": null}}
+- "meeting next Monday" → {{"date": "[calculate next Monday]", "time": null, "confidence": 0.7, "missing_fields": ["time"], "clarification_needed": "What time is the meeting?"}}
 """
     
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
@@ -111,8 +116,6 @@ Extract appointment details and respond with valid JSON only:"""
             if not date_str:
                 return None
             parsed = date_parser.parse(date_str, fuzzy=True)
-            if parsed.date() < datetime.now().date():
-                return None
             return parsed.strftime('%Y-%m-%d')
         except Exception as e:
             print(f"Date parsing error: {e}")
@@ -125,11 +128,7 @@ Extract appointment details and respond with valid JSON only:"""
             
             if extraction.date:
                 try:
-                    date_obj = datetime.strptime(extraction.date, '%Y-%m-%d').date()
-                    if date_obj < datetime.now().date():
-                        extraction.error = "Date must be in the future"
-                        extraction.missing_fields.append("date")
-                        extraction.clarification_needed = "Please provide a future date for your appointment."
+                    datetime.strptime(extraction.date, '%Y-%m-%d').date()  # just validate format
                 except ValueError:
                     extraction.error = "Invalid date format"
                     extraction.missing_fields.append("date")

@@ -25,11 +25,8 @@ def validate_datetime(date_str: str, time_str: str) -> Tuple[bool, str]:
         # Parse time
         time_obj = datetime.strptime(time_str, '%H:%M').time()
         
-        # Combine and check if future
-        datetime_combined = datetime.combine(date_obj, time_obj)
-        
-        if datetime_combined <= datetime.now():
-            return False, "Appointment must be scheduled for a future date and time"
+        # Just validate the format — any date/time is allowed
+        datetime.combine(date_obj, time_obj)  # will raise ValueError if invalid
         
         return True, ""
         
